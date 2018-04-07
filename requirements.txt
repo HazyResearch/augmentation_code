@@ -1,0 +1,6 @@
+Pillow
+matplotlib
+numpy
+pytorch>=0.3.0
+seaborn
+torchvision
