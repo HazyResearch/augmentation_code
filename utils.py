@@ -3,11 +3,10 @@ import numpy as np
 
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 from models import combine_transformed_dimension, split_transformed_dimension
 
-USE_CUDA = torch.cuda.is_available()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def get_train_valid_datasets(dataset,
                              valid_size=0.1,
@@ -49,18 +48,15 @@ def train(data_loader, model, optimizer):
     model.train()
     train_loss, train_acc = [], []
     for data, target in data_loader:
-        if USE_CUDA:
-            data, target = Variable(data.cuda()), Variable(target.cuda())
-        else:
-            data, target = Variable(data), Variable(target)
+        data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
         pred = model.predict(output)
         loss = model.loss(output, target)
         loss.backward()
         optimizer.step()
-        acc = (pred == target.data).sum() / target.data.size(0)
-        train_loss.append(loss.data)
+        acc = (pred == target).sum().item() / target.size(0)
+        train_loss.append(loss.item())
         train_acc.append(acc)
     return train_loss, train_acc
 
@@ -70,10 +66,7 @@ def train_models_compute_agreement(data_loader, models, optimizers):
     for model in models:
         model.train()
     for data, target in data_loader:
-        if USE_CUDA:
-            data, target = Variable(data.cuda()), Variable(target.cuda())
-        else:
-            data, target = Variable(data), Variable(target)
+        data, target = data.to(device), target.to(device)
         pred, loss = [], []
         for model, optimizer in zip(models, optimizers):
             optimizer.zero_grad()
@@ -82,7 +75,7 @@ def train_models_compute_agreement(data_loader, models, optimizers):
             loss_minibatch = model.loss(output, target)
             loss_minibatch.backward()
             optimizer.step()
-            loss.append(loss_minibatch.data)
+            loss.append(loss_minibatch.item())
             # To avoid out-of-memory error, as these attributes prevent the memory from being freed
             if hasattr(model, '_avg_features'):
                 del model._avg_features
@@ -123,16 +116,13 @@ def accuracy(data_loader, model):
     training = model.training
     model.eval()
     correct, total = 0, 0
-    for data, target in data_loader:
-        if USE_CUDA:
-            data, target = Variable(
-                data.cuda(), volatile=True), Variable(target.cuda())
-        else:
-            data, target = Variable(data, volatile=True), Variable(target)
-        output = model(data)
-        pred = model.predict(output)
-        correct += (pred == target.data).sum()
-        total += target.size(0)
+    with torch.no_grad():
+        for data, target in data_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            pred = model.predict(output)
+            correct += (pred == target).sum().item()
+            total += target.size(0)
     model.train(training)
     return correct, total
 
@@ -143,13 +133,10 @@ def all_losses(data_loader, model):
     training = model.training
     model.eval()
     losses = []
-    for data, target in data_loader:
-        if USE_CUDA:
-            data, target = Variable(
-                data.cuda(), volatile=True), Variable(target.cuda())
-        else:
-            data, target = Variable(data, volatile=True), Variable(target)
-        losses.append([l.data[0] for l in model.all_losses(data, target)])
+    with torch.no_grad():
+        for data, target in data_loader:
+            data, target = data.to(device), target.to(device)
+            losses.append([l.item() for l in model.all_losses(data, target)])
     model.train(training)
     return np.array(losses)
 
@@ -159,23 +146,21 @@ def agreement_kl_accuracy(data_loader, models):
     for model in models:
         model.eval()
     valid_agreement, valid_acc, valid_kl = [], [], []
-    for data, target in data_loader:
-        if USE_CUDA:
-            data, target = Variable(data.cuda()), Variable(target.cuda())
-        else:
-            data, target = Variable(data), Variable(target)
-        pred, out = [], []
-        for model in models:
-            output = model(data)
-            out.append(output)
-            pred.append(model.predict(output))
-        pred = torch.stack(pred)
-        out = torch.stack(out)
-        log_prob = F.log_softmax(out, dim=-1)
-        prob = F.softmax(out[0], dim=-1).detach()
-        valid_kl.append([F.kl_div(lp, prob, size_average=False).data.cpu() / prob.size(0) for lp in log_prob])
-        valid_acc.append((pred == target.data).float().mean(dim=1).cpu().numpy())
-        valid_agreement.append((pred == pred[0]).float().mean(dim=1).cpu().numpy())
+    with torch.no_grad():
+        for data, target in data_loader:
+            data, target = data.to(device), target.to(device)
+            pred, out = [], []
+            for model in models:
+                output = model(data).detach()
+                out.append(output)
+                pred.append(model.predict(output))
+            pred = torch.stack(pred)
+            out = torch.stack(out)
+            log_prob = F.log_softmax(out, dim=-1)
+            prob = F.softmax(out[0], dim=-1)
+            valid_kl.append([F.kl_div(lp, prob, size_average=False).item() / prob.size(0) for lp in log_prob])
+            valid_acc.append((pred == target).float().mean(dim=1).cpu().numpy())
+            valid_agreement.append((pred == pred[0]).float().mean(dim=1).cpu().numpy())
     for model, training_ in zip(models, training):
         model.train(training_)
     return valid_agreement, valid_kl, valid_acc
@@ -187,19 +172,17 @@ def kernel_target_alignment(data_loader, model, n_passes_through_data=10):
     Larger number of passes yields more accurate result, but takes longer.
     """
     inclass_kernel, kernel_fro_norm, inclass_num = [], [], []
-    for _ in range(n_passes_through_data):
-        for data, target in data_loader:
-            if USE_CUDA:
-                data, target = Variable(data.cuda()), target.cuda()
-            else:
-                data, target = Variable(data), target
-            features = model.features(data).data
-            target = target[:, None]
-            same_labels = target == target.t()
-            K = features @ features.t()
-            inclass_kernel.append(K[same_labels].sum())
-            kernel_fro_norm.append((K * K).sum())
-            inclass_num.append(same_labels.long().sum())
+    with torch.no_grad():
+        for _ in range(n_passes_through_data):
+            for data, target in data_loader:
+                data, target = data.to(device), target.to(device)
+                features = model.features(data)
+                target = target[:, None]
+                same_labels = target == target.t()
+                K = features @ features.t()
+                inclass_kernel.append(K[same_labels].sum().item())
+                kernel_fro_norm.append((K * K).sum().item())
+                inclass_num.append(same_labels.long().sum().item())
     inclass_kernel = np.array(inclass_kernel)
     kernel_fro_norm = np.array(kernel_fro_norm)
     inclass_num = np.array(inclass_num)
@@ -214,25 +197,23 @@ def kernel_target_alignment_augmented(data_loader, model, n_passes_through_data=
     result.
     """
     inclass_kernel, kernel_fro_norm, inclass_num = [], [], []
-    for _ in range(n_passes_through_data):
-        for data, target in data_loader:
-            if USE_CUDA:
-                data, target = Variable(data.cuda()), target.cuda()
-            else:
-                data, target = Variable(data), target
-            n_transforms = data.size(1)
-            data = combine_transformed_dimension(data)
-            features = model.features(data).data
-            features = split_transformed_dimension(features, n_transforms)
-            features_avg = features.mean(dim=1)
-            features_og = features[:, 0]
-            target = target[:, None]
-            same_labels = target == target.t()
-            K_avg = features_avg @ features_avg.t()
-            K_og = features_og @ features_og.t()
-            inclass_kernel.append([K_avg[same_labels].sum(), K_og[same_labels].sum()])
-            kernel_fro_norm.append([(K_avg * K_avg).sum(), (K_og * K_og).sum()])
-            inclass_num.append(same_labels.long().sum())
+    with torch.no_grad():
+        for _ in range(n_passes_through_data):
+            for data, target in data_loader:
+                data, target = data.to(device), target.to(device)
+                n_transforms = data.size(1)
+                data = combine_transformed_dimension(data)
+                features = model.features(data)
+                features = split_transformed_dimension(features, n_transforms)
+                features_avg = features.mean(dim=1)
+                features_og = features[:, 0]
+                target = target[:, None]
+                same_labels = target == target.t()
+                K_avg = features_avg @ features_avg.t()
+                K_og = features_og @ features_og.t()
+                inclass_kernel.append([K_avg[same_labels].sum().item(), K_og[same_labels].sum().item()])
+                kernel_fro_norm.append([(K_avg * K_avg).sum().item(), (K_og * K_og).sum().item()])
+                inclass_num.append(same_labels.long().sum().item())
     inclass_kernel = np.array(inclass_kernel)
     kernel_fro_norm = np.array(kernel_fro_norm)
     inclass_num = np.array(inclass_num)

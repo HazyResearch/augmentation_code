@@ -24,7 +24,7 @@ class MultinomialLogisticRegression(nn.Module):
 
     @staticmethod
     def predict(output):
-        return output.data.max(1)[1]
+        return output.detach().max(1)[1]
 
 
 class MultinomialLogisticRegressionAug(MultinomialLogisticRegression):
@@ -77,7 +77,7 @@ class MultinomialLogisticRegressionAug(MultinomialLogisticRegression):
         if output.dim() > 2:
             # Average over transformed versions of the same data point
             output = output.mean(dim=1)
-        return output.data.max(1)[1]
+        return output.detach().max(1)[1]
 
     @classmethod
     def loss_original(cls, output, target, reduce=True):
@@ -91,7 +91,7 @@ class MultinomialLogisticRegressionAug(MultinomialLogisticRegression):
         """
         # For each data point, replicate the target then compute the cross
         # entropy loss. Finally stack the result.
-        loss = torch.cat([
+        loss = torch.stack([
             cls.loss_original(out, tar.repeat(out.size(0)))
             for out, tar in zip(output, target)
         ])
@@ -106,7 +106,7 @@ class MultinomialLogisticRegressionAug(MultinomialLogisticRegression):
         # ones = torch.ones_like(output[:, 0])
         # W = torch.stack([autograd.grad(output[:, i], self._avg_features, grad_outputs=ones, create_graph=True)[0]
         #                  for i in range(10)], dim=1)
-        eye = torch.eye(output.size(1)).cuda() if output.is_cuda else torch.eye(output.size(1))
+        eye = torch.eye(output.size(1), device=output.device)
         eye = eye[None, :].expand(output.size(0), -1, -1)
         W = torch.stack([autograd.grad(output, self._avg_features, grad_outputs=eye[:, i], create_graph=True)[0]
                          for i in range(10)], dim=1)
@@ -261,11 +261,11 @@ class LeNet(MultinomialLogisticRegression):
     layers.
     """
 
-    def __init__(self):
+    def __init__(self, n_channels=1, size=28):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 6, 5)
+        self.conv1 = nn.Conv2d(n_channels, 6, 5)
         self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 4 * 4, 120)
+        self.fc1 = nn.Linear(16 * (size // 4 - 3) * (size // 4 - 3), 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 10)
         self.layers = [self.layer_1, self.layer_2, self.layer_3, self.layer_4]
@@ -354,8 +354,8 @@ class LeNetAug(MultinomialLogisticRegressionAug, LeNet):
     layers.
     """
 
-    def __init__(self, approx=True, feature_avg=True, regularization=False, layer_to_avg=4):
-        LeNet.__init__(self)
+    def __init__(self, n_channels=1, size=28, approx=True, feature_avg=True, regularization=False, layer_to_avg=4):
+        LeNet.__init__(self, n_channels, size)
         MultinomialLogisticRegressionAug.__init__(self, approx, feature_avg,
                                                   regularization)
         error_msg = "[!] layer_to_avg should be in the range [0, ..., 4]."

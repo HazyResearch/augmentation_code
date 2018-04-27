@@ -6,17 +6,16 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 from torchvision import datasets, transforms
-from torch.autograd import Variable
 
 from models import LinearLogisticRegression, RBFLogisticRegression, LinearLogisticRegressionAug, RBFLogisticRegressionAug, LeNet, LeNetAug, combine_transformed_dimension, split_transformed_dimension
 from augmentation import copy_with_new_transform, augment_transforms, rotation, resized_crop, blur, rotation_crop_blur, hflip, hflip_vflip, brightness, contrast
 from utils import get_train_valid_datasets, train, train_all_epochs, accuracy, all_losses, train_models_compute_agreement, agreement_kl_accuracy, kernel_target_alignment, kernel_target_alignment_augmented
 
-USE_CUDA = torch.cuda.is_available()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 batch_size = 256
-if USE_CUDA:
+if device.type == 'cuda':
     loader_args = {'num_workers': 16, 'pin_memory': True}
 else:
     loader_args = {'num_workers': 4, 'pin_memory': False}
@@ -91,8 +90,7 @@ def train_basic_models(train_loader, augmented_loader):
             augmented_loader, augmented_loader, augmented_loader,
             augmented_loader, augmented_loader, augmented_loader]
     for model, loader in zip(models, loaders):
-        if USE_CUDA:
-            model.cuda()
+        model.to(device)
         optimizer = sgd_opt_from_model(model)
         train_loss, train_acc, valid_acc = train_all_epochs(loader, valid_loader, model,
                                                 optimizer, sgd_n_epochs)
@@ -109,9 +107,7 @@ def objective_difference(augmentations):
             for seed in range(n_trials):
                 print(f'Seed: {seed}')
                 torch.manual_seed(seed)
-                model = model_factories[model_name]()
-                if USE_CUDA:
-                    model.cuda()
+                model = model_factories[model_name]().to(device)
                 optimizer = sgd_opt_from_model(model)
                 loader = loader_from_dataset(augmentation.dataset)
                 model.train()
@@ -216,9 +212,8 @@ def agreement_kl_difference(augmentations):
                 loader = loader_from_dataset(augmentation.dataset)
                 model = model_factories[model_name]()
                 models = model_variants[model_name](model)
-                if USE_CUDA:
-                    for model in models:
-                        model.cuda()
+                for model in models:
+                    model.to(device)
                 optimizers = [sgd_opt_from_model(model) for model in models]
                 for model in models:
                     model.train()
@@ -247,9 +242,7 @@ def find_gamma_by_alignment(train_loader, gamma_vals=(0.03, 0.01, 0.003, 0.001, 
     The value of gamma giving the highest alignment is likely the best gamma.
     """
     for gamma in gamma_vals:
-        model = RBFLogisticRegressionAug(n_features, n_classes, gamma=gamma, n_components=n_components, approx=False)
-        if USE_CUDA:
-            model.cuda()
+        model = RBFLogisticRegressionAug(n_features, n_classes, gamma=gamma, n_components=n_components, approx=False).to(device)
         print(kernel_target_alignment(train_loader, model))
     # Best gamma is 0.003
 
@@ -262,10 +255,8 @@ def alignment_comparison(augmentations):
     for augmentation in augmentations:
         print(augmentation.name)
         loader = loader_from_dataset(augmentation.dataset)
-        model = model_factories[model_name]()
-        if USE_CUDA:
-            model.cuda()
-        alignment.append(kernel_target_alignment_augmented(loader, model, n_passes_through_data=50))
+        model = model_factories[model_name]().to(device)
+        alignment.append(kernel_target_alignment_augmented(loader, model, n_passes_through_data=10))
     alignment = np.array(alignment)
     alignment_no_transform = alignment[:, 1].mean()
     np.save('saved/kernel_alignment.npy', np.array([alignment_no_transform] + list(alignment[:, 0])))
@@ -278,15 +269,11 @@ def alignment_lenet(augmentations):
     """
     for augmentation in augmentations:
         print(augmentation.name)
-        model_base = LeNet()
-        if USE_CUDA:
-            model_base = model_base.cuda()
+        model_base = LeNet().to(device)
         optimizer = sgd_opt_from_model(model_base)
         # Train LeNet for 1 epoch first
         _ = train_all_epochs(train_loader, valid_loader, model_base, optimizer, 1)
-        model = LeNetAug()
-        if USE_CUDA:
-            model.cuda()
+        model = LeNetAug().to(device)
         model.load_state_dict(model_base.state_dict())
         loader = loader_from_dataset(augmentation.dataset)
         print(kernel_target_alignment_augmented(loader, model))
@@ -295,16 +282,11 @@ def alignment_lenet(augmentations):
 def measure_computation_fraction_lenet(train_loader):
     """Measure percentage of computation time spent in each layer of LeNet.
     """
-    model = LeNet()
-    if USE_CUDA:
-        model.cuda()
+    model = LeNet().to(device)
     loader = train_loader
     it = iter(loader)
     data, target = next(it)
-    if USE_CUDA:
-        data, target = Variable(data.cuda()), target.cuda()
-    else:
-        data, target = Variable(data), target
+    data, target = data.to(device), target.to(device)
     # We use iPython's %timeit. Uncomment and copy these to iPython.
     # %timeit feat1 = model.layer_1(data)
     # feat1 = model.layer_1(data)

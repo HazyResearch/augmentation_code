@@ -1,6 +1,6 @@
 Pillow
 matplotlib
 numpy
-pytorch>=0.3.0
+pytorch>=0.4.0
 seaborn
 torchvision

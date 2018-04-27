@@ -4,7 +4,7 @@ Modern Data Augmentation"](http://arxiv.org/abs/1803.06084).
 
 ## Dependencies
 - Python 3.6+
-- Pillow, matplotlib, numpy, pytorch>=0.3.0, seaborn, torchvision
+- Pillow, matplotlib, numpy, pytorch>=0.4.0, seaborn, torchvision
 
 ## Usage
 
