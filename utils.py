@@ -83,6 +83,11 @@ def train_models_compute_agreement(data_loader, models, optimizers):
             loss_minibatch.backward()
             optimizer.step()
             loss.append(loss_minibatch.data)
+            # To avoid out-of-memory error, as these attributes prevent the memory from being freed
+            if hasattr(model, '_avg_features'):
+                del model._avg_features
+            if hasattr(model, '_centered_features'):
+                del model._centered_features
         loss = np.array(loss)
         pred = np.array([p.cpu().numpy() for p in pred])
         train_agreement.append((pred == pred[0]).mean(axis=1))

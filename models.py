@@ -64,7 +64,8 @@ class MultinomialLogisticRegressionAug(MultinomialLogisticRegression):
                 self._avg_features = feat.mean(dim=1)
             else:
                 self._avg_features = feat[:, 0]
-            self._centered_features = feat - self._avg_features[:, None]
+            if self.regularization:  # Storing this every time consumes lots of memory
+                self._centered_features = feat - self._avg_features[:, None]
             feat = self._avg_features
         output = self.output_from_features(feat)
         if not self.approx and augmented:
@@ -187,7 +188,7 @@ class MultinomialLogisticRegressionAug(MultinomialLogisticRegression):
 
         """
         approx, feature_avg = self.approx, self.feature_avg
-        self.approx, self.feature_avg = True, True
+        self.approx, self.feature_avg, self.regularization = True, True, True
         output = self(x)
         features = self._centered_features + self._avg_features[:, None]
         n_transforms = features.size(1)

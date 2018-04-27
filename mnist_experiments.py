@@ -318,6 +318,17 @@ def measure_computation_fraction_lenet(train_loader):
     # %timeit output = model(data)
 
 
+def memory_profile():
+    # Print out the resident Tensors
+    import gc
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                print(type(obj), obj.size(), obj.type())
+        except:
+            pass
+
+
 def main():
     pathlib.Path('saved').mkdir(parents=True, exist_ok=True)
     # train_basic_models(train_loader, loader_from_dataset(augmentations[0].dataset))
