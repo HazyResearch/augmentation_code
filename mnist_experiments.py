@@ -56,7 +56,7 @@ n_components = 10000
 sgd_n_epochs = 15
 n_trials = 10
 
-model_factories = {'linear': lambda: LinearLogisticRegressionAug(n_features, n_classes),
+model_factories = {'linear': lambda: LinearLogisticRegressionAug(n_features, n_classes, approx=False),
                    'kernel': lambda: RBFLogisticRegressionAug(n_features, n_classes, gamma=gamma, n_components=n_components, approx=False),
                    'lenet': lambda: LeNetAug(approx=False)}
 
@@ -130,6 +130,23 @@ def objective_difference(augmentations):
                         train_loss=train_loss, train_acc=train_acc, valid_acc=valid_acc)
                 losses = np.array(losses).T
                 np.save(f'saved/all_losses_{model_name}_{augmentation.name}_{seed}.npy', losses)
+
+
+def accuracy_on_true_objective(augmentations):
+    """Measure the accuracy when trained on true augmented objective.
+    """
+    for model_name in ['kernel', 'lenet']:
+        for augmentation in augmentations:
+            for seed in range(n_trials):
+                print(f'Seed: {seed}')
+                torch.manual_seed(seed)
+                model = model_factories[model_name]().to(device)
+                optimizer = sgd_opt_from_model(model)
+                loader = loader_from_dataset(augmentation.dataset)
+                train_loss, train_acc, valid_acc = train_all_epochs(loader, valid_loader, model, optimizer, sgd_n_epochs)
+                train_loss, train_acc, valid_acc = np.array(train_loss), np.array(train_acc), np.array(valid_acc)
+                np.savez(f'saved/train_valid_acc_{model_name}_{augmentation.name}_{seed}.npz',
+                        train_loss=train_loss, train_acc=train_acc, valid_acc=valid_acc)
 
 
 def exact_to_og_model(model):
@@ -315,6 +332,7 @@ def main():
     pathlib.Path('saved').mkdir(parents=True, exist_ok=True)
     # train_basic_models(train_loader, loader_from_dataset(augmentations[0].dataset))
     objective_difference(augmentations[:4])
+    accuracy_on_true_objective(augmentations[4:])
     agreement_kl_difference(augmentations[:4])
     # find_gamma_by_alignment(train_loader)
     alignment_comparison(augmentations)

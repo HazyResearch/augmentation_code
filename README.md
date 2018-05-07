@@ -9,7 +9,7 @@ Modern Data Augmentation"](http://arxiv.org/abs/1803.06084).
 ## Usage
 
 * `mnist_experiments.py` runs a full set of experiments on MNIST and save the
-    results to the directory `saved`. Note: the default run take a long time (a day) to
+    results to the directory `saved`. Note: the default run take a long time (43 hours) to
     finish.
     ```
     python mnist_experiments.py
