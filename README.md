@@ -2,7 +2,7 @@
 
 ## Dependencies
 - Python 3.6+
-- Pillow, matplotlib, numpy, pytorch>=0.4.0, seaborn, torchvision
+- Pillow, matplotlib, numpy, pytorch==0.4.0, seaborn, torchvision
 
 ## Usage
 
