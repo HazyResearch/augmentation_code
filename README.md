@@ -1,6 +1,4 @@
 # Augmentation
-Code to reproduce experiments and figures in the paper ["A Kernel Theory of
-Modern Data Augmentation"](http://arxiv.org/abs/1803.06084).
 
 ## Dependencies
 - Python 3.6+
@@ -10,7 +8,7 @@ Modern Data Augmentation"](http://arxiv.org/abs/1803.06084).
 
 * `mnist_experiments.py` runs a full set of experiments on MNIST and save the
     results to the directory `saved`. Note: the default run take a long time (43 hours) to
-    finish.
+    finish, since we're running for all 10 seeds.
     ```
     python mnist_experiments.py
     ```
