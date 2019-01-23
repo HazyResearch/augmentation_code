@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from sklearn.metrics import roc_auc_score
+
 from models import combine_transformed_dimension, split_transformed_dimension
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -126,6 +128,23 @@ def accuracy(data_loader, model):
     model.train(training)
     return correct, total
 
+def roc_auc(data_loader, model):
+    """Accuracy over all mini-batches.
+    """
+    training = model.training
+    model.eval()
+    y_true, y_score = [], []
+    with torch.no_grad():
+        for data, target in data_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            y_true.append(target)
+            y_score.append(torch.nn.Softmax(dim=-1)(output)[:, 1])
+    model.train(training)
+    y_true = torch.cat(y_true).cpu().numpy()
+    y_score = torch.cat(y_score).cpu().numpy()
+    return roc_auc_score(y_true, y_score)
+
 
 def all_losses(data_loader, model):
     """All losses over all mini-batches.
@@ -218,3 +237,31 @@ def kernel_target_alignment_augmented(data_loader, model, n_passes_through_data=
     kernel_fro_norm = np.array(kernel_fro_norm)
     inclass_num = np.array(inclass_num)
     return tuple(inclass_kernel.mean(axis=0) / np.sqrt(kernel_fro_norm.mean(axis=0) * inclass_num.mean()))
+
+
+def kernel_target_alignment_augmented_no_avg(data_loader, model, n_passes_through_data=10):
+    """Compute kernel target alignment approximately by summing over
+    mini-batches. This is for augmented dataset, and no feature averaging will be done.
+    Thus this is kernel target alignment on the augmented dataset.
+    The number of mini-batches is controlled by @n_passes_through_data.
+    Larger number of passes yields more accurate result, but takes longer.
+    """
+    inclass_kernel, kernel_fro_norm, inclass_num = [], [], []
+    with torch.no_grad():
+        for _ in range(n_passes_through_data):
+            for data, target in data_loader:
+                data, target = data.to(device), target.to(device)
+                # Repeat target for augmented data points
+                target = target[:, None].repeat(1, data.shape[1]).view(-1)
+                data = combine_transformed_dimension(data)
+                features = model.features(data)
+                target = target[:, None]
+                same_labels = target == target.t()
+                K = features @ features.t()
+                inclass_kernel.append(K[same_labels].sum().item())
+                kernel_fro_norm.append((K * K).sum().item())
+                inclass_num.append(same_labels.long().sum().item())
+    inclass_kernel = np.array(inclass_kernel)
+    kernel_fro_norm = np.array(kernel_fro_norm)
+    inclass_num = np.array(inclass_num)
+    return inclass_kernel.mean(axis=0) / np.sqrt(kernel_fro_norm.mean(axis=0) * inclass_num.mean())
